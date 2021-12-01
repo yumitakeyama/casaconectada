@@ -1,0 +1,212 @@
+#include <ESP8266WiFi.h>                                                                                    // Biblioteca 
+#include <PubSubClient.h>                                                                                   // Biblioteca 
+#define MSG_BUFFER_SIZE (50)
+char msg[MSG_BUFFER_SIZE];                                                                        
+#include <Adafruit_Sensor.h>                                                                                // Biblioteca Adafruit do sensor temperatura/umidade
+#include <DHT.h>
+#include <DHT_U.h>
+#define DHTPIN 5
+#define DHTTYPE DHT22
+DHT_Unified dht(DHTPIN, DHTTYPE);                                                                 
+uint32_t delayMS;                                                                                 
+const char* ssid = "********";                                                          
+const char* password = "***********";                                                              
+const char* mqtt_server = "broker.mqtt-dashboard.com";                                                      // Endereço do Broker                                        
+WiFiClient espClient;                                                                             
+PubSubClient client(espClient);                                                                   
+unsigned long lastMsg = 0;                                                                                  // ultima mensagem com valor inicial igual a 0                                                                  
+int value = 0;                                                                                              // valor inteiro igual a zero                                                                                   
+
+char Sala;                                                                                                  // variavel char nome sala /LED D2/
+char Quarto;                                                                                                // variavel char nome quarto /LED D4/
+char Cozinha;                                                                                               // variavel char nome cozinha /LED D5/
+char Banheiro;                                                                                              // variavel char nome banheiro /LED D7/
+
+void setup() {                                                                                              // laço de configuração                                                                                 
+  
+  dht.begin();                                                                                              // inicia o sensor dht                                                                                
+  Serial.println(F("Sensor DHT22"));                                                                        // escreve no monitor serial a mensagem "Sensor DHT22                                                           
+  sensor_t sensor;                                                                                
+
+  /////// Sensor de Temperatura /////
+  
+  dht.temperature().getSensor(&sensor);                                                                     // retorna ao sensor de temperatura                                                          
+  Serial.println(F("------------------------------------"));                                      
+  Serial.println(F("Temperatura"));                                                               
+  Serial.print  (F("Sensor: ")); Serial.println(sensor.name);                                     
+  Serial.print  (F("Valor máximo: ")); Serial.print(sensor.max_value); Serial.println(F("°C")); 
+  Serial.print  (F("Valor mínimo: ")); Serial.print(sensor.min_value); Serial.println(F("°C")); 
+  Serial.print  (F("Resolução: ")); Serial.print(sensor.resolution); Serial.println(F("°C"));    
+  Serial.println(F("------------------------------------"));                                      
+
+ /////// Sensor de Umidade /////
+  
+  dht.humidity().getSensor(&sensor);                                                                        // retorna ao sensor de umidade                                                         
+   Serial.println(F("------------------------------------"));                                     
+  Serial.println(F("Umidade"));                                                                   
+  Serial.print  (F("Sensor: ")); Serial.println(sensor.name);                                     
+  Serial.print  (F("Valor máximo: ")); Serial.print(sensor.max_value); Serial.println(F("%"));  
+  Serial.print  (F("Valor mínimo: ")); Serial.print(sensor.min_value); Serial.println(F("%"));  
+  Serial.print  (F("Resolução: ")); Serial.print(sensor.resolution); Serial.println(F("%"));     
+  Serial.println(F("------------------------------------"));                                      
+  
+  delayMS = sensor.min_delay / 1000;                                                                        // pausa do programa até 1s
+  
+  Sala = 4;                                                                                                 // define Sala ligado ao Pin4 (D2)                                                                                    
+  Quarto = 2;                                                                                               // define Quarto ligado ao Pin2 (D4)                                                                                
+  Cozinha = 14;                                                                                             // define Cozinha ligado ao Pin14 (D5)
+  Banheiro = 13;                                                                                            // define Banheiro ligado ao Pin13 (D7)                                                                                  
+
+  pinMode(Sala, OUTPUT);                                                                                    // Configuração da sala como pino de saída                                                                        
+  pinMode(Quarto, OUTPUT);                                                                                  // Configuração do quarto como pino de saída    
+  pinMode(Cozinha, OUTPUT);                                                                                 // Configuração da cozinha como pino de saída  
+  pinMode(Banheiro, OUTPUT);                                                                                // Configuração do banheiro como pino de saída    
+  
+  Serial.begin(115200);                                                                                     // inicial a taxa de transmissão
+  
+  setup_wifi();                                                                                             // configura o wifi                                                                              
+  client.setServer(mqtt_server, 1883);                                                                      // executa o servidor MQTT de porta 1883
+  client.setCallback(callback);                                                                             // retorna mensagem 
+}
+
+void setup_wifi() {                                                                                         // laço de configuração Wifi                                                                      
+
+  delay(500);                                                                                               // atraso de 0,5 segundos                                                                                       
+  Serial.println("");                                                                             
+  Serial.print("Conectando com ");                                                                
+  Serial.println(ssid);                                                                                                                                                                
+
+  WiFi.begin(ssid, password);                                                                     
+
+  while (WiFi.status() != WL_CONNECTED) {                                                                   // enquanto estiver conectando escreva no monitor                                                       
+    delay(500);                                                                                             // atraso de 0,5 segundos                                                                               
+    Serial.print(".");                                    
+  }                  
+
+  Serial.println("");                                                                             
+  Serial.println("WiFi conectado");                                                               
+  Serial.println("IP: ");                                                                         
+  Serial.println(WiFi.localIP());                                                                 
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {                                            // inicializa a mensagem de retorno (tópico, mensagem e comprimento)                        
+  Serial.print("Mensagem recebida [");                                                            
+  Serial.print(topic);                                                                            
+  Serial.print("] ");                                                                             
+  for (int i = 0; i < length; i++) {                                                                        // para inteiro i = O e enquanto i for menor que o comprimento da mensagem inclua 1 caractere                                                             
+    Serial.print((char)payload[i]);                                                                         // printa o conteúdo da mensagem.                                                               
+  }
+  Serial.println("");                                                                                       // quebra de linha                                                                           
+  if ((char)payload[0] == 'S') {                                                                            // se o conteúdo recebido da mensagem for "S" maísculo                                                        
+    digitalWrite(Sala, HIGH);                                                                               // o LED vai para nível alto.
+    snprintf (msg, MSG_BUFFER_SIZE, "A luz da sala está ligada");                                           // e mostra no monitor que " a luz da sala está ligada "                             
+    Serial.print("Publica mensagem: ");                                                           
+    Serial.println(msg);                                                                          
+    client.publish("casa/sala", msg);                                                                       // publicação do cliente no tópico casa/sala                                                             
+  }
+  Serial.println("");                                                                                       // quebra de linha 
+  if ((char)payload[0] == 's') {                                                                            // se o conteudo da mensagem recebida for "s" minusculo                                
+    digitalWrite(Sala, LOW);                                                                                // o LED da sala vai para nível baixo
+    snprintf (msg, MSG_BUFFER_SIZE, "A luz da sala está desligada");                                        // e mostra no monitor que "a luz da sala está desligada"                         
+    Serial.print("Publica mensagem: ");                                                           
+    Serial.println(msg);                                                                          
+    client.publish("casa/sala", msg);                                                                       // cliente publica a mensagem casa/sala                                       
+  }
+  Serial.println("");                                                                             
+  if ((char)payload[0] == 'Q') {                                                                  
+    digitalWrite(Quarto, HIGH);                                                                   
+    snprintf (msg, MSG_BUFFER_SIZE, "A luz do quarto está ligada");                               
+    Serial.print("Publica mensagem: ");                                                           
+    Serial.println(msg);                                                                          
+    client.publish("casa/quarto", msg);                                                           
+  }
+   Serial.println("");                                                                            
+   if ((char)payload[0] == 'q') {                                                                 
+    digitalWrite(Quarto, LOW);                                                                    
+    snprintf (msg, MSG_BUFFER_SIZE, "A luz do quarto está desligada");                            
+    Serial.print("Publica mensagem: ");                                                           
+    Serial.println(msg);                                                                          
+    client.publish("casa/quarto", msg);                                                           
+  }
+  Serial.println("");                                                                             
+  if ((char)payload[0] == 'C') {                                                                  
+    digitalWrite(Cozinha, HIGH);                                                                  
+    snprintf (msg, MSG_BUFFER_SIZE, "A luz da cozinha está ligada");                              
+    Serial.print("Publica mensagem: ");                                                           
+    Serial.println(msg);                                                                          
+    client.publish("casa/cozinha", msg);                                                          
+  }
+  Serial.println("");                                                                             
+   if ((char)payload[0] == 'c') {                                                                 
+    digitalWrite(Cozinha, LOW);                                                                   
+    snprintf (msg, MSG_BUFFER_SIZE, "A luz da cozinha está desligada");                           
+    Serial.print("Publica mensagem: ");                                                           
+    Serial.println(msg);                                                                          
+    client.publish("casa/cozinha", msg);                                                          
+  }
+  Serial.println("");                                                                             
+  if ((char)payload[0] == 'B') {                                                                  
+    digitalWrite(Banheiro, HIGH);                                                                 
+    snprintf (msg, MSG_BUFFER_SIZE, "A luz do banheiro está ligada");                             
+    Serial.print("Publica mensagem: ");                                                           
+    Serial.println(msg);                                                                          
+    client.publish("casa/banheiro", msg);                                                         
+  }
+   Serial.println("");                                                                            
+   if ((char)payload[0] == 'b') {                                                                 
+    digitalWrite(Banheiro, LOW);                                                                  
+    snprintf (msg, MSG_BUFFER_SIZE, "A luz do banheiro está desligada");                          
+    Serial.print("Publica mensagem: ");                                                           
+    Serial.println(msg);                                                                          
+    client.publish("casa/banheiro", msg);                                                         
+    
+  }
+}
+
+void reconnect() {                                                                                          // laço de reconexão                                                 
+  while (!client.connected()) {                                                                             // enquanto cliente conectando                                                                  
+    Serial.print("Aguardando conexão MQTT...");                                                             // escrever no monitor serial aguardando conexão MQTT
+    String clientId = "ESP8266Client";                                                                      // cria uma identidade tipo cliente aleatoria                                   
+    clientId += String(random(0xffff), HEX);                                                                 
+    if (client.connect(clientId.c_str())) {                                                                 // se realizada a conexao
+      Serial.println("conectado");                                                                          // escreve no monitor serial "conectado"
+      client.subscribe("casa/publisher");                                                                   // cliente subescreve (casa/publisher)
+    } else {                                                                                                // Caso o contrario
+      Serial.print("falhou, rc=");                                                                          // printa mensagem de falha 
+      Serial.print(client.state());                                                                         // printa status do cliente 
+      Serial.println("tente novamente em 5s");                                                    
+      delay(5000);                                                                                          // atraso de 5 segundos 
+    }
+  }
+}
+
+void loop() {                                                                                               // laço de repetição                                                                                    
+  delay(delayMS);                                                                                           // atraso 
+  sensors_event_t event;                                                                                    // inicia a medição do sensor 
+  dht.temperature().getEvent(&event);                                                                       // inicia o sensor DHT
+  if (isnan(event.temperature)) {                                                                           // caso nao ocorra a leitura da temperatura 
+    Serial.println(F("Erro na leitura da temperatura!"));                                                   // printar a frase: erro na leitura da temperatura                                    
+  }
+  else {                                                                                                    // do contrario 
+    Serial.print(F("Temperatura: "));                                                                       // printa temperatura F                                                                                                               
+    Serial.print(event.temperature);                                                                        // printa a temperatura F
+    Serial.println(F("°C"));                                                                                // printa a temperatura F em C  
+    sprintf(msg,"%f",event.temperature);                                                                    // salva o evento temperatura                                                              
+    client.publish("casa/temperatura", msg);                                                                // cliente publica mensagem (casa/temperatura)
+  }
+  dht.humidity().getEvent(&event);                                                                          // inicia o evento sensor de umidade           
+  if (isnan(event.relative_humidity)) {                                                                     // se caso nao ocorra a leitura da umidade                                                        
+    Serial.println(F("Erro na leitura da umidade!"));                                                       // escrever no monitor serial ' erro de leitura da umidade '
+  }
+  else {                                                                                                    // do contrario                                                                                                  
+    Serial.print(F("Umidade: "));                                                                           // printa Umidade F                                                               
+    Serial.print(event.relative_humidity);                                                                  // printa o evento umidade                                                      
+    Serial.println(F("%"));                                                                                 // printa %
+    sprintf(msg,"%f",event.relative_humidity);                                                              // salva o evento umidade 
+    client.publish("casa/umidade", msg);                                                                    // cliente publica mensagem (casa/umidade)                                                         
+  }
+  if (!client.connected()) {                                                                                // se cliente não conectar                                                                 
+    reconnect();                                                                                            // laço de reconexao                                                                                 
+  }
+  client.loop();                                                                                            // repetir                                                                             
+}
